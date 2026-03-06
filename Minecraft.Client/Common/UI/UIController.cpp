@@ -860,7 +860,8 @@ void UIController::tickInput()
 						if (controls)
 						{
 							int hitControlId = -1;
-							S32 hitCx = -1;
+							S32 hitArea = INT_MAX;
+							bool hitIsTextInput = false;
 							for (size_t i = 0; i < controls->size(); ++i)
 							{
 								UIControl *ctrl = (*controls)[i];
@@ -896,56 +897,25 @@ void UIController::tickInput()
 										((UIControl_ButtonList *)ctrl)->SetTouchFocus(
 											(S32)sceneMouseX, (S32)sceneMouseY, false);
 										hitControlId = -1;
-										hitCx = -1;
+										hitArea = INT_MAX;
 										break; // ButtonList takes priority
 									}
-									else if (cx > hitCx)
+									S32 area = cw * ch;
+									if (area < hitArea)
 									{
-										// When multiple controls overlap (e.g. debug scenes
-										// with side-by-side TextInputs reporting full width),
-										// pick the one whose left edge is closest to mouse X.
 										hitControlId = ctrl->getId();
-										hitCx = cx;
+										hitArea = area;
+										hitIsTextInput = (type == UIControl::eTextInput);
 									}
 								}
 							}
 
-							if (hitControlId >= 0 && pScene->getControlFocus() != hitControlId)
+							// Set focus directly via Flash AS, matching the click path.
+							// Skip TextInput — its Iggy focus is set on click (below)
+							// to avoid showing the caret on mere hover.
+							if (hitControlId >= 0 && !hitIsTextInput && pScene->getControlFocus() != hitControlId)
 							{
-								// Set focus via Iggy's internal focus system so that
-								// action dispatch (ACTION_MENU_OK) targets the right
-								// control. SetFocusToElement calls Flash's AS SetFocus
-								// which triggers full focus behavior (including caret
-								// visibility on TextInputs), so prefer IggyPlayerSetFocusRS.
-								Iggy *movie = pScene->getMovie();
-								IggyFocusHandle currentFocus = IGGY_FOCUS_NULL;
-								IggyFocusableObject focusables[64];
-								S32 numFocusables = 0;
-								IggyPlayerGetFocusableObjects(movie, &currentFocus, focusables, 64, &numFocusables);
-								// Iggy focusable bounds may overlap (same wide-width issue
-								// as C++ bounds). Pick the one with largest x0 <= mouseX.
-								bool iggyFocusSet = false;
-								S32 bestFocusX0 = -1;
-								S32 bestFocusIdx = -1;
-								for (S32 fi = 0; fi < numFocusables && fi < 64; ++fi)
-								{
-									if (sceneMouseX >= focusables[fi].x0 && sceneMouseX <= focusables[fi].x1 &&
-										sceneMouseY >= focusables[fi].y0 && sceneMouseY <= focusables[fi].y1)
-									{
-										if (focusables[fi].x0 > bestFocusX0)
-										{
-											bestFocusX0 = focusables[fi].x0;
-											bestFocusIdx = fi;
-										}
-									}
-								}
-								if (bestFocusIdx >= 0)
-								{
-									IggyPlayerSetFocusRS(movie, focusables[bestFocusIdx].object, 0);
-									iggyFocusSet = true;
-								}
-								if (!iggyFocusSet)
-									pScene->SetFocusToElement(hitControlId);
+								pScene->SetFocusToElement(hitControlId);
 							}
 						}
 					}
