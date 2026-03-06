@@ -262,12 +262,14 @@ wstring UIScene_CraftingMenu::getMoviePath()
 	}
 }
 
-#ifdef __PSVITA__
+#if defined(__PSVITA__) || defined(_WINDOWS64)
 UIControl* UIScene_CraftingMenu::GetMainPanel()
 {
 	return &m_controlMainPanel;
 }
+#endif
 
+#ifdef __PSVITA__
 void UIScene_CraftingMenu::handleTouchInput(unsigned int iPad, S32 x, S32 y, int iId, bool bPressed, bool bRepeat, bool bReleased)
 {
 	// perform action on release
@@ -394,33 +396,79 @@ void UIScene_CraftingMenu::handleTimerComplete(int id)
 #ifdef _WINDOWS64
 bool UIScene_CraftingMenu::handleMouseClick(F32 x, F32 y)
 {
-	if (!m_hSlotBoundsValid)
+	if (!m_hSlotBoundsValid || m_hSlotSpacing <= 0)
 		return false;
 
-	F32 rowWidth = m_hSlotSpacing * m_iCraftablesMaxHSlotC;
+	// Tab click — tabs sit directly above the H slot row. We derive their
+	// bounds from the H slot positions cached in customDraw, since the Vita
+	// TouchPanel controls are full-screen overlays with unusable bounds.
+	int maxTabs = (m_iContainerType == RECIPE_TYPE_3x3) ? m_iMaxGroup3x3 : m_iMaxGroup2x2;
+	F32 slotHeight = m_hSlotY1 - m_hSlotY0;
+	F32 tabRowY0 = (m_hSlotY0 * 0.75f) - slotHeight * 1.55f;
+	F32 tabRowY1 = tabRowY0 + (slotHeight * 1.7f);
+	F32 tabRowWidth = m_hSlotSpacing * m_iCraftablesMaxHSlotC;
+	F32 tabWidth = tabRowWidth / maxTabs;
 
-	if (m_hSlotSpacing > 0 && x >= m_hSlotX0 && x < m_hSlotX0 + rowWidth &&
+	if (tabWidth > 0 && x >= m_hSlotX0 && x < m_hSlotX0 + tabRowWidth &&
+		y >= tabRowY0 && y < tabRowY1)
+	{
+		int iTab = (int)((x - m_hSlotX0) / tabWidth);
+		if (iTab >= 0 && iTab < maxTabs && iTab != m_iGroupIndex)
+		{
+			showTabHighlight(m_iGroupIndex, false);
+			m_iGroupIndex = iTab;
+			showTabHighlight(m_iGroupIndex, true);
+			m_iCurrentSlotHIndex = 0;
+			m_iCurrentSlotVIndex = 1;
+			CheckRecipesAvailable();
+			iVSlotIndexA[0] = CanBeMadeA[m_iCurrentSlotHIndex].iCount - 1;
+			iVSlotIndexA[1] = 0;
+			iVSlotIndexA[2] = 1;
+			ui.PlayUISFX(eSFX_Focus);
+			UpdateVerticalSlots();
+			UpdateHighlight();
+			setGroupText(GetGroupNameText(m_pGroupA[m_iGroupIndex]));
+		}
+		return true;
+	}
+
+	// H slot click — select or craft
+	F32 rowWidth = m_hSlotSpacing * m_iCraftablesMaxHSlotC;
+	if (x >= m_hSlotX0 && x < m_hSlotX0 + rowWidth &&
 		y >= m_hSlotY0 && y < m_hSlotY1)
 	{
 		int iNewSlot = (int)((x - m_hSlotX0) / m_hSlotSpacing);
 		if (iNewSlot >= 0 && iNewSlot < m_iCraftablesMaxHSlotC)
 		{
-			int iOldHSlot = m_iCurrentSlotHIndex;
-			m_iCurrentSlotHIndex = iNewSlot;
-			m_iCurrentSlotVIndex = 1;
-			iVSlotIndexA[0] = CanBeMadeA[m_iCurrentSlotHIndex].iCount - 1;
-			iVSlotIndexA[1] = 0;
-			iVSlotIndexA[2] = 1;
-			UpdateVerticalSlots();
-			UpdateHighlight();
-			if (CanBeMadeA[iOldHSlot].iCount > 0)
-				setShowCraftHSlot(iOldHSlot, true);
-			ui.PlayUISFX(eSFX_Focus);
+			// Only interact with populated slots
+			if (CanBeMadeA[iNewSlot].iCount == 0)
+				return true;
+
+			if (iNewSlot == m_iCurrentSlotHIndex)
+			{
+				// Click on already-selected slot — craft the item
+				handleKeyDown(m_iPad, ACTION_MENU_A, false);
+			}
+			else
+			{
+				int iOldHSlot = m_iCurrentSlotHIndex;
+				m_iCurrentSlotHIndex = iNewSlot;
+				m_iCurrentSlotVIndex = 1;
+				iVSlotIndexA[0] = CanBeMadeA[m_iCurrentSlotHIndex].iCount - 1;
+				iVSlotIndexA[1] = 0;
+				iVSlotIndexA[2] = 1;
+				UpdateVerticalSlots();
+				UpdateHighlight();
+				if (CanBeMadeA[iOldHSlot].iCount > 0)
+					setShowCraftHSlot(iOldHSlot, true);
+				ui.PlayUISFX(eSFX_Focus);
+			}
 			return true;
 		}
 	}
-
-	return false;
+	// Consume all mouse clicks so misses don't generate ACTION_MENU_A
+	// and accidentally craft. Only blocks mouse-originated presses.
+	return true;
 }
 #endif
 

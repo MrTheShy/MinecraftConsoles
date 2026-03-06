@@ -66,9 +66,11 @@ public:
 
 #ifdef __PSVITA__
 	virtual void handleTouchInput(unsigned int iPad, S32 x, S32 y, int iId, bool bPressed, bool bRepeat, bool bReleased);
-	virtual UIControl* GetMainPanel();
 	virtual void handleTouchBoxRebuild();
 	virtual void handleTimerComplete(int id);
+#endif
+#if defined(__PSVITA__) || defined(_WINDOWS64)
+	virtual UIControl* GetMainPanel();
 #endif
 #ifdef _WINDOWS64
 	virtual bool handleMouseClick(F32 x, F32 y);
@@ -104,7 +106,7 @@ protected:
 		ETouchInput_TouchPanel_5,
 		ETouchInput_TouchPanel_6,
 		ETouchInput_CraftingHSlots,
-		
+
 		ETouchInput_Count,
 	};
 	UIControl_Touch m_TouchInput[ETouchInput_Count];
