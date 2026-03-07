@@ -52,6 +52,7 @@
 #include "..\Minecraft.World\net.minecraft.world.level.dimension.h"
 #include "..\Minecraft.World\net.minecraft.world.item.h"
 #include "..\Minecraft.World\Minecraft.World.h"
+#include "Windows64\Windows64_Xuid.h"
 #include "ClientConnection.h"
 #include "..\Minecraft.World\HellRandomLevelSource.h"
 #include "..\Minecraft.World\net.minecraft.world.entity.animal.h"
@@ -84,10 +85,10 @@
 #define DISABLE_LEVELTICK_THREAD
 
 Minecraft *Minecraft::m_instance = NULL;
-__int64 Minecraft::frameTimes[512];
-__int64 Minecraft::tickTimes[512];
+int64_t Minecraft::frameTimes[512];
+int64_t Minecraft::tickTimes[512];
 int Minecraft::frameTimePos = 0;
-__int64 Minecraft::warezTime = 0;
+int64_t Minecraft::warezTime = 0;
 File Minecraft::workDir = File(L"");
 
 #ifdef __PSVITA__
@@ -634,7 +635,7 @@ void Minecraft::run()
 		return;
 	}
 
-	__int64 lastTime = System::currentTimeMillis();
+	int64_t lastTime = System::currentTimeMillis();
 	int frames = 0;
 
 	while (running)
@@ -659,7 +660,7 @@ void Minecraft::run()
 			timer->advanceTime();
 		}
 
-		__int64 beforeTickTime = System::nanoTime();
+		int64_t beforeTickTime = System::nanoTime();
 		for (int i = 0; i < timer->ticks; i++)
 		{
 			ticks++;
@@ -671,7 +672,7 @@ void Minecraft::run()
 			//                setScreen(new LevelConflictScreen());
 			//            }
 		}
-		__int64 tickDuraction = System::nanoTime() - beforeTickTime;
+		int64_t tickDuraction = System::nanoTime() - beforeTickTime;
 		checkGlError(L"Pre render");
 
 		TileRenderer::fancy = options->fancyGraphics;
@@ -1038,6 +1039,19 @@ shared_ptr<MultiplayerLocalPlayer> Minecraft::createExtraLocalPlayer(int idx, co
 		PlayerUID playerXUIDOnline = INVALID_XUID;
 		ProfileManager.GetXUID(idx,&playerXUIDOffline,false);
 		ProfileManager.GetXUID(idx,&playerXUIDOnline,true);
+#ifdef _WINDOWS64
+		// Compatibility rule for Win64 id migration
+		// host keeps legacy host XUID, non-host uses persistent uid.dat XUID.
+		INetworkPlayer *localNetworkPlayer = g_NetworkManager.GetLocalPlayerByUserIndex(idx);
+		if(localNetworkPlayer != NULL && localNetworkPlayer->IsHost())
+		{
+			playerXUIDOffline = Win64Xuid::GetLegacyEmbeddedHostXuid();
+		}
+		else
+		{
+			playerXUIDOffline = Win64Xuid::ResolvePersistentXuid();
+		}
+#endif
 		localplayers[idx]->setXuid(playerXUIDOffline);
 		localplayers[idx]->setOnlineXuid(playerXUIDOnline);
 		localplayers[idx]->setIsGuest(ProfileManager.IsGuest(idx));
@@ -1226,7 +1240,7 @@ void Minecraft::applyFrameMouseLook()
 
 void Minecraft::run_middle()
 {
-	static __int64 lastTime = 0;
+	static int64_t lastTime = 0;
 	static bool bFirstTimeIntoGame = true;
 	static bool bAutosaveTimerSet=false;
 	static unsigned int uiAutosaveTimer=0;
@@ -1466,13 +1480,31 @@ void Minecraft::run_middle()
 								localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_USE;
 
 							if(g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_INVENTORY))
-								localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_INVENTORY;
+							{
+								if(ui.IsSceneInStack(i, eUIScene_InventoryMenu))
+								{
+									ui.CloseUIScenes(i);
+								}
+								else
+								{
+									localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_INVENTORY;
+								}
+							}
 
 							if(g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_DROP))
 								localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_DROP;
 
 							if(g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_CRAFTING) || g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_CRAFTING_ALT))
+							{
+							if(ui.IsSceneInStack(i, eUIScene_Crafting2x2Menu) || ui.IsSceneInStack(i, eUIScene_Crafting3x3Menu) || ui.IsSceneInStack(i, eUIScene_CreativeMenu))
+							{
+								ui.CloseUIScenes(i);
+							}
+							else
+							{
 								localplayers[i]->ullButtonsPressed|=1LL<<MINECRAFT_ACTION_CRAFTING;
+							}
+						}
 
 							for (int slot = 0; slot < 9; slot++)
 							{
@@ -1508,7 +1540,7 @@ void Minecraft::run_middle()
 					}
 #endif
 
-#ifndef _FINAL_BUILD
+#if _DEBUG // ndef _FINAL_BUILD // Disable conflicting debug functionality in release builds
 					if( app.DebugSettingsOn() && app.GetUseDPadForDebug() )
 					{
 						localplayers[i]->ullDpad_last = 0;
@@ -1790,7 +1822,7 @@ void Minecraft::run_middle()
 				timer->advanceTime();
 			}
 
-			//__int64 beforeTickTime = System::nanoTime();
+			//int64_t beforeTickTime = System::nanoTime();
 			for (int i = 0; i < timer->ticks; i++)
 			{
 				bool bLastTimerTick = ( i == ( timer->ticks - 1 ) );
@@ -1876,7 +1908,7 @@ void Minecraft::run_middle()
 // 				CompressedTileStorage::tick();	// 4J added
 // 				SparseDataStorage::tick();		// 4J added
 			}
-			//__int64 tickDuraction = System::nanoTime() - beforeTickTime;
+			//int64_t tickDuraction = System::nanoTime() - beforeTickTime;
 			MemSect(31);
 			checkGlError(L"Pre render");
 			MemSect(0);
@@ -2081,14 +2113,14 @@ void Minecraft::emergencySave()
 	setLevel(NULL);
 }
 
-void Minecraft::renderFpsMeter(__int64 tickTime)
+void Minecraft::renderFpsMeter(int64_t tickTime)
 {
 	int nsPer60Fps = 1000000000l / 60;
 	if (lastTimer == -1)
 	{
 		lastTimer = System::nanoTime();
 	}
-	__int64 now = System::nanoTime();
+	int64_t now = System::nanoTime();
 	Minecraft::tickTimes[(Minecraft::frameTimePos) & (Minecraft::frameTimes_length - 1)] = tickTime;
 	Minecraft::frameTimes[(Minecraft::frameTimePos++) & (Minecraft::frameTimes_length - 1)] = now - lastTimer;
 	lastTimer = now;
@@ -2120,7 +2152,7 @@ void Minecraft::renderFpsMeter(__int64 tickTime)
 	t->vertex((float)(Minecraft::frameTimes_length), (float)( height - hh1 * 2), (float)( 0));
 
 	t->end();
-	__int64 totalTime = 0;
+	int64_t totalTime = 0;
 	for (int i = 0; i < Minecraft::frameTimes_length; i++)
 	{
 		totalTime += Minecraft::frameTimes[i];
@@ -2150,8 +2182,8 @@ void Minecraft::renderFpsMeter(__int64 tickTime)
 			t->color(0xff000000 + cc * 256);
 		}
 
-		__int64 time = Minecraft::frameTimes[i] / 200000;
-		__int64 time2 = Minecraft::tickTimes[i] / 200000;
+		int64_t time = Minecraft::frameTimes[i] / 200000;
+		int64_t time2 = Minecraft::tickTimes[i] / 200000;
 
 		t->vertex((float)(i + 0.5f), (float)( height - time + 0.5f), (float)( 0));
 		t->vertex((float)(i + 0.5f), (float)( height + 0.5f), (float)( 0));
@@ -3642,7 +3674,7 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 
 		if (player->missTime > 0) player->missTime--;
 
-#ifdef _DEBUG_MENUS_ENABLED
+#ifdef _DEBUG//_MENUS_ENABLED // disable DPad cheats on release builds
 		if(app.DebugSettingsOn())
 		{
 #ifndef __PSVITA__
@@ -3750,7 +3782,7 @@ void Minecraft::tick(bool bFirst, bool bUpdateTextures)
 			player->drop();
 		}
 
-		__uint64 ullButtonsPressed=player->ullButtonsPressed;
+		uint64_t ullButtonsPressed=player->ullButtonsPressed;
 
 		bool selected = false;
 #ifdef __PSVITA__
@@ -4304,6 +4336,19 @@ void Minecraft::setLevel(MultiPlayerLevel *level, int message /*=-1*/, shared_pt
 				playerXUIDOnline.setForAdhoc();
 			}
 #endif
+#ifdef _WINDOWS64
+			// On Windows, the implementation has been changed to use a per-client pseudo XUID based on `uid.dat`.
+			// To maintain player data compatibility with existing worlds, the world host (the first player) will use the previous embedded pseudo XUID.
+			INetworkPlayer *localNetworkPlayer = g_NetworkManager.GetLocalPlayerByUserIndex(iPrimaryPlayer);
+			if(localNetworkPlayer != NULL && localNetworkPlayer->IsHost())
+			{
+				playerXUIDOffline = Win64Xuid::GetLegacyEmbeddedHostXuid();
+			}
+			else
+			{
+				playerXUIDOffline = Win64Xuid::ResolvePersistentXuid();
+			}
+#endif
 			player->setXuid(playerXUIDOffline);
 			player->setOnlineXuid(playerXUIDOnline);
 
@@ -4486,6 +4531,18 @@ void Minecraft::respawnPlayer(int iPad, int dimension, int newEntityId)
 	PlayerUID playerXUIDOnline = INVALID_XUID;
 	ProfileManager.GetXUID(iTempPad,&playerXUIDOffline,false);
 	ProfileManager.GetXUID(iTempPad,&playerXUIDOnline,true);
+#ifdef _WINDOWS64
+	// Same compatibility rule as create/init paths.
+	INetworkPlayer *localNetworkPlayer = g_NetworkManager.GetLocalPlayerByUserIndex(iTempPad);
+	if(localNetworkPlayer != NULL && localNetworkPlayer->IsHost())
+	{
+		playerXUIDOffline = Win64Xuid::GetLegacyEmbeddedHostXuid();
+	}
+	else
+	{
+		playerXUIDOffline = Win64Xuid::ResolvePersistentXuid();
+	}
+#endif
 	player->setXuid(playerXUIDOffline);
 	player->setOnlineXuid(playerXUIDOnline);
 	player->setIsGuest( ProfileManager.IsGuest(iTempPad) );
@@ -4787,7 +4844,7 @@ void Minecraft::delayTextureReload()
 	reloadTextures = true;
 }
 
-__int64 Minecraft::currentTimeMillis()
+int64_t Minecraft::currentTimeMillis()
 {
 	return System::currentTimeMillis();//(Sys.getTime() * 1000) / Sys.getTimerResolution();
 }
