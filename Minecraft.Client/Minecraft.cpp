@@ -4590,8 +4590,14 @@ void Minecraft::startAndConnectTo(const wstring& name, const wstring& sid, const
 
 	Minecraft *minecraft;
 	// 4J - was new Minecraft(frame, canvas, NULL, 854, 480, fullScreen);
+	// Logical width is proportional to the real screen aspect ratio so that
+	// the ortho projection and HUD layout match the viewport without stretching.
+	extern int g_iScreenWidth;
+	extern int g_iScreenHeight;
+	int logicalH = 720;
+	int logicalW = logicalH * g_iScreenWidth / g_iScreenHeight;
 
-	minecraft = new Minecraft(NULL, NULL, NULL, 1280, 720, fullScreen);
+	minecraft = new Minecraft(NULL, NULL, NULL, logicalW, logicalH, fullScreen);
 
 	/* - 4J - removed
 	{

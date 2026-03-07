@@ -13,6 +13,7 @@
 #include "..\..\EnderDragonRenderer.h"
 #include "..\..\MultiPlayerLocalPlayer.h"
 #include "UIFontData.h"
+#include "UISplitScreenHelpers.h"
 #ifdef _WINDOWS64
 #include "..\..\Windows64\KeyboardMouseInput.h"
 #endif
@@ -56,6 +57,8 @@ CRITICAL_SECTION UIController::ms_reloadSkinCS;
 bool UIController::ms_bReloadSkinCSInitialised = false;
 
 DWORD UIController::m_dwTrialTimerLimitSecs=DYNAMIC_CONFIG_DEFAULT_TRIAL_TIME;
+
+// GetViewportRect and Fit16x9 are now in UISplitScreenHelpers.h
 
 #ifdef _WINDOWS64
 static UIControl_Slider *FindSliderById(UIScene *pScene, int sliderId)
@@ -854,28 +857,15 @@ void UIController::tickInput()
 								S32 displayW = 0, displayH = 0;
 								getRenderDimensions(vp, displayW, displayH);
 
-								S32 originX = 0, originY = 0;
-								switch (vp)
-								{
-								case C4JRender::VIEWPORT_TYPE_SPLIT_TOP:
-									originX = (S32)(getScreenWidth() / 4); break;
-								case C4JRender::VIEWPORT_TYPE_SPLIT_BOTTOM:
-									originX = (S32)(getScreenWidth() / 4);
-									originY = (S32)(getScreenHeight() / 2); break;
-								case C4JRender::VIEWPORT_TYPE_SPLIT_LEFT:
-									originY = (S32)(getScreenHeight() / 4); break;
-								case C4JRender::VIEWPORT_TYPE_SPLIT_RIGHT:
-									originX = (S32)(getScreenWidth() / 2);
-									originY = (S32)(getScreenHeight() / 4); break;
-								case C4JRender::VIEWPORT_TYPE_QUADRANT_TOP_RIGHT:
-									originX = (S32)(getScreenWidth() / 2); break;
-								case C4JRender::VIEWPORT_TYPE_QUADRANT_BOTTOM_LEFT:
-									originY = (S32)(getScreenHeight() / 2); break;
-								case C4JRender::VIEWPORT_TYPE_QUADRANT_BOTTOM_RIGHT:
-									originX = (S32)(getScreenWidth() / 2);
-									originY = (S32)(getScreenHeight() / 2); break;
-								default: break; // FULLSCREEN and QUADRANT_TOP_LEFT: origin (0,0)
-								}
+								F32 vpOriginX, vpOriginY, vpW, vpH;
+								GetViewportRect(getScreenWidth(), getScreenHeight(), vp, vpOriginX, vpOriginY, vpW, vpH);
+								// All viewports use Fit16x9 for menu scenes
+								S32 fitW, fitH, fitOffsetX, fitOffsetY;
+								Fit16x9(vpW, vpH, fitW, fitH, fitOffsetX, fitOffsetY);
+								S32 originX = (S32)vpOriginX + fitOffsetX;
+								S32 originY = (S32)vpOriginY + fitOffsetY;
+								displayW = fitW;
+								displayH = fitH;
 
 								if (displayW > 0 && displayH > 0)
 								{
@@ -1609,73 +1599,47 @@ void UIController::renderScenes()
 
 void UIController::getRenderDimensions(C4JRender::eViewportType viewport, S32 &width, S32 &height)
 {
-	switch( viewport )
+	F32 originX, originY, viewW, viewH;
+	GetViewportRect(getScreenWidth(), getScreenHeight(), viewport, originX, originY, viewW, viewH);
+	if(viewport == C4JRender::VIEWPORT_TYPE_FULLSCREEN)
 	{
-	case C4JRender::VIEWPORT_TYPE_FULLSCREEN:
-		width = (S32)(getScreenWidth());
-		height = (S32)(getScreenHeight());
-		break;
-	case C4JRender::VIEWPORT_TYPE_SPLIT_TOP:
-	case C4JRender::VIEWPORT_TYPE_SPLIT_BOTTOM:
-		width = (S32)(getScreenWidth() / 2);
-		height = (S32)(getScreenHeight() / 2);
-		break;
-	case C4JRender::VIEWPORT_TYPE_SPLIT_LEFT:
-	case C4JRender::VIEWPORT_TYPE_SPLIT_RIGHT:
-		width = (S32)(getScreenWidth() / 2);
-		height = (S32)(getScreenHeight() / 2);
-		break;
-	case C4JRender::VIEWPORT_TYPE_QUADRANT_TOP_LEFT:
-	case C4JRender::VIEWPORT_TYPE_QUADRANT_TOP_RIGHT:
-	case C4JRender::VIEWPORT_TYPE_QUADRANT_BOTTOM_LEFT:
-	case C4JRender::VIEWPORT_TYPE_QUADRANT_BOTTOM_RIGHT:
-		width = (S32)(getScreenWidth() / 2);
-		height = (S32)(getScreenHeight() / 2);
-		break;
+		S32 offsetX, offsetY;
+		Fit16x9(viewW, viewH, width, height, offsetX, offsetY);
+	}
+	else
+	{
+		// Split-screen: use raw viewport dims — the SWF tiling code handles non-16:9
+		width = (S32)viewW;
+		height = (S32)viewH;
 	}
 }
 
 void UIController::setupRenderPosition(C4JRender::eViewportType viewport)
 {
-	if(m_bCustomRenderPosition || m_currentRenderViewport != viewport)
+	m_currentRenderViewport = viewport;
+	m_bCustomRenderPosition = false;
+
+	F32 vpOriginX, vpOriginY, vpW, vpH;
+	GetViewportRect(getScreenWidth(), getScreenHeight(), viewport, vpOriginX, vpOriginY, vpW, vpH);
+
+	S32 xPos, yPos;
+	if(viewport == C4JRender::VIEWPORT_TYPE_FULLSCREEN)
 	{
-		m_currentRenderViewport = viewport;
-		m_bCustomRenderPosition = false;
-		S32 xPos = 0;
-		S32 yPos = 0;
-		switch( viewport )
-		{
-		case C4JRender::VIEWPORT_TYPE_SPLIT_TOP:
-			xPos = (S32)(getScreenWidth() / 4);
-			break;
-		case C4JRender::VIEWPORT_TYPE_SPLIT_BOTTOM:
-			xPos = (S32)(getScreenWidth() / 4);
-			yPos = (S32)(getScreenHeight() / 2);
-			break;
-		case C4JRender::VIEWPORT_TYPE_SPLIT_LEFT:
-			yPos = (S32)(getScreenHeight() / 4);
-			break;
-		case C4JRender::VIEWPORT_TYPE_SPLIT_RIGHT:
-			xPos = (S32)(getScreenWidth() / 2);
-			yPos = (S32)(getScreenHeight() / 4);
-			break;
-		case C4JRender::VIEWPORT_TYPE_QUADRANT_TOP_LEFT:
-			break;
-		case C4JRender::VIEWPORT_TYPE_QUADRANT_TOP_RIGHT:
-			xPos = (S32)(getScreenWidth() / 2);
-			break;
-		case C4JRender::VIEWPORT_TYPE_QUADRANT_BOTTOM_LEFT:
-			yPos = (S32)(getScreenHeight() / 2);
-			break;
-		case C4JRender::VIEWPORT_TYPE_QUADRANT_BOTTOM_RIGHT:
-			xPos = (S32)(getScreenWidth() / 2);
-			yPos = (S32)(getScreenHeight() / 2);
-			break;
-		}
-		m_tileOriginX = xPos;
-		m_tileOriginY = yPos;
-		setTileOrigin(xPos, yPos);
+		S32 fitW, fitH, fitOffsetX, fitOffsetY;
+		Fit16x9(vpW, vpH, fitW, fitH, fitOffsetX, fitOffsetY);
+		xPos = (S32)vpOriginX + fitOffsetX;
+		yPos = (S32)vpOriginY + fitOffsetY;
 	}
+	else
+	{
+		// Split-screen: position at viewport origin, no 16:9 fitting
+		xPos = (S32)vpOriginX;
+		yPos = (S32)vpOriginY;
+	}
+
+	m_tileOriginX = xPos;
+	m_tileOriginY = yPos;
+	setTileOrigin(xPos, yPos);
 }
 
 void UIController::setupRenderPosition(S32 xOrigin, S32 yOrigin)
